@@ -2,6 +2,8 @@
 #define READ_FORMULA_H
 #include<vector>
 #include<string>
+#define GE 1
+#define EQ 2
 
 class Formula{
     public:

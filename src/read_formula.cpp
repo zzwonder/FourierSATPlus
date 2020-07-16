@@ -35,6 +35,11 @@ void Formula::print(){
     }
 }
 
+static void PB_canonicalize(std::vector<int> *literals, int *k, int *comparator){ // comparator: >= (1), =(2)  
+
+// to be done
+}
+
 void Formula::read_DIMACS(std::string file){
     std::ifstream input_file;
     input_file.open(file.c_str());
@@ -86,14 +91,16 @@ void Formula::read_DIMACS(std::string file){
                 	literals->push_back(std::stoi(split[i]));
             	}
                 weight = this->compute_clause_weight(literals->size(),k,'d');
-                this->add_clause(literals, k , 'c', weight);
+                std::vector<int> *coefs = new std::vector<int>(literals->size(),1);
+                this->add_clause(literals, k , 'c', weight,coefs);
             }
              else{
                 for(int i=2; i<split.size()-1;i++){
                         literals->push_back(-std::stoi(split[i]));
                 }
                 weight = this->compute_clause_weight(literals->size(),k,'d');
-                this->add_clause(literals, literals->size() + k , 'c', weight);
+                std::vector<int> *coefs = new std::vector<int>(literals->size(),1);
+                this->add_clause(literals, literals->size() + k , 'c', weight, coefs);
             }
 
             
@@ -111,18 +118,23 @@ void Formula::read_DIMACS(std::string file){
                 coefs->push_back(std::stoi(split[i*2]));
                 literals->push_back(std::stoi(split[i*2+1]));
             }
-            std::string comparator = split[split.size()-3];
-            int k = std::stoi(split[split.size() -2];
-            canonicalize(literals, &k, &comparator); // comparator: >= (1), =(2)  
+            std::string comparator_string = split[split.size()-3];
+            int comparator = 0;
+            if(comparator_string == ">=") comparator = 1;
+            else if(comparator_string == "=") comparator = 2;
+            
+            int k = std::stoi(split[split.size() -2]);
+            PB_canonicalize(literals, &k, &comparator); // comparator: >= (1), =(2)  
             weight = this->compute_clause_weight(literals->size(),k,'p');
-            this->add_clause(literals, k , 'p', weight);
+            this->add_clause(literals, k , 'p', weight,coefs,comparator);
         }
         else{
             for(int i=0; i<split.size()-1;i++){
-                literals->push_back(stoi(split[i]));
+                literals->push_back(std::stoi(split[i]));
     	    }
+            std::vector<int> *coefs = new std::vector<int>(literals->size(),1);
             weight = this->compute_clause_weight(literals->size(),1,'c');
-            this->add_clause(literals, 1 , 'c', weight);
+            this->add_clause(literals, 1 , 'c', weight, coefs);
         }
     }
 }
