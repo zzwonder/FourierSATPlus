@@ -3,6 +3,8 @@
 #include <stdio.h>
 #include <iostream>
 #include <queue>
+#include <set>
+#include "cudd.h"
 BDD::BDD(){
     this->gbm = Cudd_Init(0,0,CUDD_UNIQUE_SLOTS,CUDD_CACHE_SLOTS,0); /* Initialize a new BDD manager. */
     this->roots = new std::vector<DdNode*>; 
@@ -158,8 +160,8 @@ void BDD::forward_pass(std::vector<float> *x){
         DdNode *node = Q.front();
         Q.pop();
         int current_variable = Cudd_NodeReadIndex(node);
-        DdNode *hi_child = CUDD_T(node);
-        DdNode *lo_child = CUDD_E(node);
+        DdNode *hi_child = Cudd_T(node);
+        DdNode *lo_child = Cudd_E(node);
         if ( hi_child != NULL){
             Q.push(hi_child);
             if ( !this->forward_message->count(hi_child)){
@@ -174,6 +176,7 @@ void BDD::forward_pass(std::vector<float> *x){
             (*this->forward_message)[lo_child] += (*this->forward_message)[node] * (1 - (*x)[current_variable]);
             Q.push(lo_child);
         }
+   }
 
             
             

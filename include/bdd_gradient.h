@@ -30,7 +30,7 @@ class BDD{
     void print_dd (DdManager *gbm, DdNode *dd, int n, int pr );   
  
     private:
-    
+    void message_clean();
     void build_BDD_for_clause(Formula *formula, int ci);
     void forward_pass(std::vector<float> *x);
     void backward_pass(std::vector<float> *x, std::vector<float> *grad);
