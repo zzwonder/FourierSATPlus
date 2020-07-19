@@ -19,7 +19,8 @@ class Formula{
     void add_clause(std::vector<int> *literals, int k, char ctype, float weight, std::vector<int> *coefsL, int comparator);
     void read_DIMACS(std::string file);
     void print();
-    float compute_clause_weight(int n, int k, char ctype); 
+    float compute_clause_weight(int n, int k, char ctype);
+    std::vector<int> unsat_clauses(std::vector<int> *x); 
 };
 
 

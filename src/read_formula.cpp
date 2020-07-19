@@ -64,17 +64,18 @@ void Formula::read_DIMACS(std::string file){
             this->num_of_vars = std::stoi(split[2]);   
         }
         else if (split[0] == "g"){
+            std::vector<int> *coefs = new std::vector<int>(this->num_of_vars,1);
             int k = std::stoi(split[1]);
             weight = this->compute_clause_weight(this->num_of_vars,k,'g');
             if (k>=0){
                 for(int i=1; i<=this->num_of_vars;i++){
                     literals->push_back(i);}
-                this->add_clause(literals,k,'c',weight);
+                this->add_clause(literals,k,'c',weight, coefs);
 	    }
             else{
                 for(int i=1; i<=this->num_of_vars;i++){
                     literals->push_back(-i);}
-                this->add_clause(literals, this->num_of_vars + k, 'c', weight);
+                this->add_clause(literals, this->num_of_vars + k, 'c', weight, coefs);
             }
         }
         else if (split[0] == "x"){
