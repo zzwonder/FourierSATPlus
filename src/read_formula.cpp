@@ -10,13 +10,13 @@ Formula::Formula(){
     this->num_of_vars = 0;
     this->clauses = new std::vector<std::vector<int> *>;
     this->coefs = new std::vector<std::vector<int> *>;
-    this->clause_weights = new std::vector<float>;
+    this->clause_weights = new std::vector<double>;
     this->clause_type = new std::vector<char>;
     this->klist = new std::vector<int>;
     this->comparators = new std::vector<int>;
 }
 
-void Formula::add_clause(std::vector<int>* literals, int k, char ctype, float weight, std::vector<int> *coefs = NULL, int comparator =0){
+void Formula::add_clause(std::vector<int>* literals, int k, char ctype, double weight, std::vector<int> *coefs = NULL, int comparator =0){
    this->clauses->push_back(literals);
    this->klist->push_back(k);
    this->clause_type->push_back(ctype);
@@ -141,6 +141,6 @@ void Formula::read_DIMACS(std::string file){
 }
 
 
-float Formula::compute_clause_weight(int n, int k, char ctype){
+double Formula::compute_clause_weight(int n, int k, char ctype){
     return n;
 }

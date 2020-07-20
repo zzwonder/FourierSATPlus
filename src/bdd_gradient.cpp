@@ -24,6 +24,22 @@ public:
     }
 };
 
+static int sum(std::vector<int> *v){
+    int s = 0;
+    for (int i = 0; i < v->size(); i++){
+        s += (*v)[i];
+    }
+    return s;
+}
+
+static int sum(std::vector<double> *v){
+    double s = 0;
+    for (int i = 0; i < v->size(); i++){
+        s += (*v)[i];
+    }
+    return s;
+}
+
 
 BDD::BDD(){
     this->gbm = Cudd_Init(0,0,CUDD_UNIQUE_SLOTS,CUDD_CACHE_SLOTS,0); /* Initialize a new BDD manager. */
@@ -33,16 +49,19 @@ BDD::BDD(){
 
 BDD::BDD(Formula *formula){
     this->roots = new std::vector<DdNode*>;
-    this->forward_message = new std::map<DdNode*,float>; 
-    this->backward_message = new std::map<DdNode*,float>; 
+    this->forward_message = new std::map<DdNode*,double>; 
+    this->backward_message = new std::map<DdNode*,double>; 
     this->hipar = new std::map<DdNode*, std::vector<DdNode*>* >; 
     this->lopar = new std::map<DdNode*, std::vector<DdNode*>* >; 
     this->gbm = Cudd_Init(formula->num_of_vars, 0 ,CUDD_UNIQUE_SLOTS,CUDD_CACHE_SLOTS, 0); /* Initialize a new BDD manager. */
     this->clause_weights = formula->clause_weights;
+    this->num_of_vars = formula->num_of_vars;
     for ( int ci = 0; ci < formula->clauses->size(); ci++){
         this->build_BDD_for_clause(formula, ci); 
     }
     this->generate_parents = 0;
+    this->sum_of_clause_weights = sum(clause_weights);
+    std::cout<<"sum of weights = "<< this->sum_of_clause_weights<<std::endl;
     std::cout<<"building BDDs: finished."<<std::endl;
 }
 
@@ -53,24 +72,6 @@ void BDD::print_dd (DdManager *gbm, DdNode *dd, int n, int pr )
     printf("DdManager reorderings: %d | ", Cudd_ReadReorderings(gbm) ); /*Returns the number of times reordering has occurred*/
     printf("DdManager memory: %ld \n", Cudd_ReadMemoryInUse(gbm) ); /*Returns the memory in use by the manager measured in bytes*/
     Cudd_PrintDebug(gbm, dd, n, pr);  // Prints to the standard output a DD and its statistics: number of nodes, number of leaves, number of minterms.
-}
-
-
-
-static int sum(std::vector<int> *v){
-    int s = 0;
-    for (int i = 0; i < v->size(); i++){
-        s += (*v)[i];
-    }
-    return s;
-}
-
-static int sum(std::vector<float> *v){
-    float s = 0;
-    for (float i = 0; i < v->size(); i++){
-        s += (*v)[i];
-    }
-    return s;
 }
 
 
@@ -196,7 +197,7 @@ void BDD::backward_message_clean(){
     this->backward_message->clear();
 }
 
-void BDD::forward_pass(std::vector<float> *x){
+void BDD::forward_pass(std::vector<double> *x){
 // TO DO: 1. fill in the forward message
 //        2. generate the parent map
     this->message_clean();
@@ -208,7 +209,7 @@ void BDD::forward_pass(std::vector<float> *x){
             Q.push(root);
             S.insert(root);
         }
-        float weight = (*this->clause_weights)[i];
+        double weight = (*this->clause_weights)[i];
         if ( !this->forward_message->count(root)){
                 (*this->forward_message)[root] = 0;
         }
@@ -233,8 +234,8 @@ void BDD::forward_pass(std::vector<float> *x){
             (*this->lopar)[lo_child]->push_back(node);
         } 
      
-        float hi_message = (*this->forward_message)[node] * (*x)[current_variable];
-        float lo_message = (*this->forward_message)[node] - hi_message;
+        double hi_message = (*this->forward_message)[node] * (*x)[current_variable];
+        double lo_message = (*this->forward_message)[node] - hi_message;
         if ( hi_child != NULL){
             if ( !this->forward_message->count(hi_child)){
                 (*this->forward_message)[hi_child] = 0;
@@ -259,7 +260,7 @@ void BDD::forward_pass(std::vector<float> *x){
    this->generate_parents = 1;
 }
 
-void BDD::backward_pass(std::vector<float> *x, std::vector<float> *grad){
+void BDD::backward_pass(std::vector<double> *x, std::vector<double> *grad){
 // to be finished
     this->backward_message->clear(); 
     DdNode *one = Cudd_ReadOne(this->gbm);
@@ -284,7 +285,6 @@ void BDD::backward_pass(std::vector<float> *x, std::vector<float> *grad){
                 	(*this->backward_message)[hipar] = 0;
             	}
             	(*this->backward_message)[hipar] += (*this->backward_message)[node] * (*x)[hipar_variable];
-          //  	std::cout<< "hipar receives" << (*this->backward_message)[node] * (*x)[hipar_variable];
             }
         }
         if ( this->lopar->count(node)){
@@ -307,26 +307,26 @@ void BDD::backward_pass(std::vector<float> *x, std::vector<float> *grad){
     }
 }
 
-void BDD::change_weights_in_BDD(std::vector<float> *clause_weights){
+void BDD::change_weights_in_BDD(std::vector<double> *clause_weights){
     this->clause_weights = clause_weights;
 }
 
-std::vector<float> *BDD::grad(std::vector<float> *x){
+std::vector<double> *BDD::grad(std::vector<double> *x){
     int n = x->size();
-    std::vector<float> *grad = new std::vector<float>(n);
-    std::vector<float> a;
+    std::vector<double> *grad = new std::vector<double>(n);
+    std::vector<double> a;
     for( int i=0; i<x->size(); i++) a.push_back( (1 - (*x)[i]) / 2);
     this->forward_pass(&a);
     this->backward_pass(&a, grad);
     return grad;
 }
 
-float BDD::fval(std::vector<float> *x){
+double BDD::fval(std::vector<double> *x){
     DdNode *one = Cudd_ReadOne(this->gbm);
-    std::vector<float> a;
+    std::vector<double> a;
     for( int i=0; i<x->size(); i++) a.push_back( (1 - (*x)[i]) / 2);
     this->forward_pass(&a);
-    float fval = sum(this->clause_weights) - 2 * (*this->forward_message)[one];
-    std::cout<<"message at one = " <<(*this->forward_message)[one] << std::endl;
+    double fval = sum(this->clause_weights) - 2 * (*this->forward_message)[one];
+    std::cout<<"fval = " <<fval << std::endl;
     return fval;
 }
