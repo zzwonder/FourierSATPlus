@@ -10,6 +10,7 @@ class Formula{
     int num_of_vars;
     std::vector<std::vector<int> *> *clauses;
     std::vector<double> *clause_weights;
+    std::vector<double> *clause_weights_original;
     std::vector<char> *clause_type;
     std::vector<int> *klist;
     std::vector<int> *comparators;

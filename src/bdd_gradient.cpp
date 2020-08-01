@@ -5,6 +5,11 @@
 #include <queue>
 #include <set>
 #include "cudd.h"
+#include <chrono>
+#include "omp.h"
+#define CORES 1
+
+//#define COMBINE_CLAUSES
 
 class Comp_forward
 {
@@ -32,7 +37,7 @@ static int sum(std::vector<int> *v){
     return s;
 }
 
-static int sum(std::vector<double> *v){
+static double sum(std::vector<double> *v){
     double s = 0;
     for (int i = 0; i < v->size(); i++){
         s += (*v)[i];
@@ -48,6 +53,7 @@ BDD::BDD(){
 }
 
 BDD::BDD(Formula *formula){
+    this->formula = formula;
     this->roots = new std::vector<DdNode*>;
     this->forward_message = new std::map<DdNode*,double>; 
     this->backward_message = new std::map<DdNode*,double>; 
@@ -58,12 +64,30 @@ BDD::BDD(Formula *formula){
     this->num_of_vars = formula->num_of_vars;
     for ( int ci = 0; ci < formula->clauses->size(); ci++){
         this->build_BDD_for_clause(formula, ci); 
-    }
+    } 
+    #ifdef COMBINE_CLAUSES
+        this->combine_clauses(2);
+    #endif
     this->generate_parents = 0;
-    this->sum_of_clause_weights = sum(clause_weights);
+    this->sum_of_clause_weights = sum(this->clause_weights);
     std::cout<<"sum of weights = "<< this->sum_of_clause_weights<<std::endl;
     std::cout<<"building BDDs: finished."<<std::endl;
 }
+
+BDD::BDD(BDD *bdd){
+    this->formula = bdd->formula;
+    this->roots = bdd->roots;
+    this->forward_message = new std::map<DdNode*,double>; 
+    this->backward_message = new std::map<DdNode*,double>; 
+    this->hipar = new std::map<DdNode*, std::vector<DdNode*>* >; 
+    this->lopar = new std::map<DdNode*, std::vector<DdNode*>* >; 
+    this->gbm = bdd->gbm;
+    this->num_of_vars = bdd->num_of_vars;
+    this->clause_weights = new std::vector<double>;
+    for( int i = 0; i < bdd->clause_weights->size(); i++){
+        this->clause_weights->push_back((*bdd->clause_weights)[i]);
+    }
+}    
 
 void BDD::print_dd (DdManager *gbm, DdNode *dd, int n, int pr )
 {
@@ -72,6 +96,51 @@ void BDD::print_dd (DdManager *gbm, DdNode *dd, int n, int pr )
     printf("DdManager reorderings: %d | ", Cudd_ReadReorderings(gbm) ); /*Returns the number of times reordering has occurred*/
     printf("DdManager memory: %ld \n", Cudd_ReadMemoryInUse(gbm) ); /*Returns the memory in use by the manager measured in bytes*/
     Cudd_PrintDebug(gbm, dd, n, pr);  // Prints to the standard output a DD and its statistics: number of nodes, number of leaves, number of minterms.
+}
+
+int BDD::verify_solution(std::vector<double> *x, std::vector<int> *unsat_clauses){
+    unsat_clauses->clear();
+    int n = x->size();
+    int *a = new int[n];
+    for( int i = 0; i < n; i++) a[i] = ((1 - (*x)[i]) / 2);
+    for( int i = 0; i < this->formula->clauses->size(); i++ ){
+        bool unsat = 0;
+        int clause_length = (*this->formula->clauses)[i]->size();
+        int *b = new int[clause_length];
+        for ( int j = 0; j < clause_length; j++){ b[j] = a[ abs((*(*this->formula->clauses)[i])[j])-1 ];}
+        DdNode *value = Cudd_Eval(this->gbm, (*this->roots)[i], a);
+        if (value == Cudd_ReadZero(this->gbm)){
+            unsat_clauses->push_back(i);
+        }
+    }
+    return unsat_clauses->size();
+}
+
+void BDD::combine_clauses(int k){
+    int i = 0;
+//    DdManager *newgbm = Cudd_Init(this->num_of_vars, 0 ,CUDD_UNIQUE_SLOTS,CUDD_CACHE_SLOTS, 0); /* Initialize a new BDD manager. */
+    std::vector<double> *new_clause_weights = new std::vector<double>;   
+    std::vector<DdNode*> *new_roots = new std::vector<DdNode*>;
+    while ( i < this->roots->size()){
+        DdNode *root = (*this->roots)[i];
+        double new_weight = (*this->clause_weights)[i];
+        for ( int j = 1; j < k; j++){
+            if ( i + j >= this->roots->size()) break;
+            root = Cudd_addApply(this->gbm, Cudd_addTimes ,root, (*this->roots)[i+j]);
+            new_weight += (*this->clause_weights)[i+j];
+        }
+        Cudd_Ref(root);
+        i += k;
+        new_roots->push_back(root);
+        int support = Cudd_SupportSize(this->gbm, root);
+        double mincount = Cudd_CountMinterm(this->gbm, root, support);
+      //  new_weight = (pow(2,support) / mincount);
+        new_weight = support;
+        new_clause_weights->push_back(new_weight);
+        std::cout<<"weight = "<< new_weight<<std::endl;
+    }
+    this->change_weights_in_BDD(new_clause_weights);
+    this->roots = new_roots;
 }
 
 
@@ -93,6 +162,7 @@ void BDD::build_BDD_for_clause(Formula *formula, int ci){
             root = this->BDD_for_PB(gbm, (*formula->clauses)[ci], (*formula->coefs)[ci], (*formula->klist)[ci], 0, 0, sum((*formula->coefs)[ci]), EQ, &nodes_storage);
         }
     }
+    //this->print_dd(this->gbm, root, 50,4);
     this->roots->push_back(root);
 }
 
@@ -111,7 +181,6 @@ DdNode *BDD::BDD_for_PB(DdManager *gbm, std::vector<int> *literals, std::vector<
             return res;
         } 
         else if ( sum + material_left < rhs){
-            //res = Cudd_ReadLogicZero(gbm);
             res = Cudd_ReadZero(gbm);
             Cudd_Ref(res);
             return res;
@@ -119,7 +188,6 @@ DdNode *BDD::BDD_for_PB(DdManager *gbm, std::vector<int> *literals, std::vector<
     }
     else if (comparator == EQ){
         if ((sum > rhs) || (sum + material_left < rhs) ){
-            //res = Cudd_ReadLogicZero(gbm);
             res = Cudd_ReadZero(gbm);
             Cudd_Ref(res);
             return res;
@@ -204,7 +272,7 @@ void BDD::forward_pass(std::vector<double> *x){
     std::priority_queue<DdNode*, std::vector<DdNode*>, Comp_forward> Q;
     std::set<DdNode*> S;
     for( int i=0; i < this->roots->size(); i++){
-        DdNode *root = (*roots)[i];
+        DdNode *root = (*this->roots)[i];
         if (!S.count(root)){
             Q.push(root);
             S.insert(root);
@@ -215,6 +283,7 @@ void BDD::forward_pass(std::vector<double> *x){
         }
         (*this->forward_message)[root] += weight;
     }
+#ifndef FALSECORES
     while ( !Q.empty()){
         DdNode *node = Q.top();
         Q.pop();
@@ -257,11 +326,68 @@ void BDD::forward_pass(std::vector<double> *x){
             }
         }
    }
+#else 
+    while ( !Q.empty()){
+        std::vector<DdNode*> nodes_with_same_variable;
+        DdNode *node = Q.top();
+        Q.pop();
+        nodes_with_same_variable.push_back(node);
+        int current_variable = Cudd_NodeReadIndex(node);
+        while( Cudd_NodeReadIndex(Q.top()) == current_variable ){
+            nodes_with_same_variable.push_back(Q.top());
+            Q.pop();
+        }
+        
+        for( int i = 0; i < nodes_with_same_variable.size(); i++){ 
+            DdNode *node = nodes_with_same_variable[i];    
+            if ( Cudd_IsConstant(node)) continue;
+            DdNode *hi_child = Cudd_T(node);
+            DdNode *lo_child = Cudd_E(node);
+
+            if ( !this->generate_parents){
+                if ( !this->hipar->count(hi_child)){
+                     (*this->hipar)[hi_child] = new std::vector<DdNode*>;
+                }
+                if ( !this->lopar->count(lo_child)){
+                    (*this->lopar)[lo_child] = new std::vector<DdNode*>;
+                }
+                (*this->hipar)[hi_child]->push_back(node);
+                (*this->lopar)[lo_child]->push_back(node);
+            }
+
+            double hi_message = (*this->forward_message)[node] * (*x)[current_variable];
+            double lo_message = (*this->forward_message)[node] - hi_message;
+            if ( hi_child != NULL){
+                if ( !this->forward_message->count(hi_child)){
+                    (*this->forward_message)[hi_child] = 0;
+                }
+                (*this->forward_message)[hi_child] += hi_message;
+                if (!S.count(hi_child)){
+                    Q.push(hi_child);
+                    S.insert(hi_child);
+                }
+            }
+            if ( lo_child != NULL){
+                if ( !this->forward_message->count(lo_child)){
+                    (*this->forward_message)[lo_child] = 0;
+                }
+                (*this->forward_message)[lo_child] += lo_message;
+                if (!S.count(lo_child)){
+                    Q.push(lo_child);
+                    S.insert(lo_child);
+                }
+            }
+    }
+  }
+#endif
    this->generate_parents = 1;
+
+  // std::cout<<"fval from forward "<< sum(this->clause_weights) - 2 * (*this->forward_message)[Cudd_ReadOne(this->gbm)]<<std::endl;
 }
 
 void BDD::backward_pass(std::vector<double> *x, std::vector<double> *grad){
 // to be finished
+
     this->backward_message->clear(); 
     DdNode *one = Cudd_ReadOne(this->gbm);
     (*this->backward_message)[one] = 1;
@@ -299,34 +425,59 @@ void BDD::backward_pass(std::vector<double> *x, std::vector<double> *grad){
                 	(*this->backward_message)[lopar] = 0;
            	 }
             	(*this->backward_message)[lopar] += (*this->backward_message)[node] * (1 - (*x)[lopar_variable]);
-        //   	 std::cout<< "lopar receives" << (*this->backward_message)[node] * (*x)[lopar_variable];
         	}
         }
         if ( Cudd_IsConstant(node)) continue;
         (*grad)[current_variable] -= (*this->forward_message)[node] * ( (*this->backward_message)[Cudd_E(node)] - (*this->backward_message)[Cudd_T(node)]);
     }
+    double fval = 0;
+    for ( int i = 0; i < this->roots->size(); i++){
+        fval += (*this->clause_weights)[i] * (*this->backward_message)[(*this->roots)[i]];
+    }
+  //  std::cout<<"fval from backward "<< sum(this->clause_weights) - 2*fval<<std::endl;
+      
 }
 
 void BDD::change_weights_in_BDD(std::vector<double> *clause_weights){
     this->clause_weights = clause_weights;
 }
 
+void BDD::restart_weights(){
+    for ( int i =0; i<this->clause_weights->size();i++){
+        (*this->clause_weights)[i] = (*this->formula->clause_weights_original)[i];
+    }
+}
+
+
 std::vector<double> *BDD::grad(std::vector<double> *x){
+    static int grad_count = 0;
+    grad_count += 1;
+    auto t1 = std::chrono::high_resolution_clock::now();
     int n = x->size();
     std::vector<double> *grad = new std::vector<double>(n);
     std::vector<double> a;
     for( int i=0; i<x->size(); i++) a.push_back( (1 - (*x)[i]) / 2);
     this->forward_pass(&a);
     this->backward_pass(&a, grad);
+    auto t2 = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
+  //  std::cout <<"gradient uses "<< duration / 1e6<<"s"<<std::endl;
+  //  std::cout <<"gradient count "<< grad_count<<std::endl;
     return grad;
 }
 
 double BDD::fval(std::vector<double> *x){
+    static int fval_count = 0;
+    fval_count += 1;
+    auto t1 = std::chrono::high_resolution_clock::now();
     DdNode *one = Cudd_ReadOne(this->gbm);
     std::vector<double> a;
     for( int i=0; i<x->size(); i++) a.push_back( (1 - (*x)[i]) / 2);
     this->forward_pass(&a);
     double fval = sum(this->clause_weights) - 2 * (*this->forward_message)[one];
-    std::cout<<"fval = " <<fval << std::endl;
+    auto t2 = std::chrono::high_resolution_clock::now();
+    auto duration = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
+  //  std::cout <<"fval uses "<< duration / 1e6<<"s"<<std::endl;
+  //  std::cout <<"fval count "<< fval_count<<std::endl;
     return fval;
 }

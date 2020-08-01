@@ -11,6 +11,7 @@ Formula::Formula(){
     this->clauses = new std::vector<std::vector<int> *>;
     this->coefs = new std::vector<std::vector<int> *>;
     this->clause_weights = new std::vector<double>;
+    this->clause_weights_original = new std::vector<double>;
     this->clause_type = new std::vector<char>;
     this->klist = new std::vector<int>;
     this->comparators = new std::vector<int>;
@@ -21,6 +22,7 @@ void Formula::add_clause(std::vector<int>* literals, int k, char ctype, double w
    this->klist->push_back(k);
    this->clause_type->push_back(ctype);
    this->clause_weights->push_back(weight);
+   this->clause_weights_original->push_back(weight);
    this->coefs->push_back(coefs);
    this->comparators->push_back(comparator);
 }
@@ -35,9 +37,21 @@ void Formula::print(){
     }
 }
 
-static void PB_canonicalize(std::vector<int> *literals, int *k, int *comparator){ // comparator: >= (1), =(2)  
-
-// to be done
+static void PB_canonicalize(std::vector<int> *literals, std::vector<int> *coefs, int *k, int *comparator){ // comparator: >= (1), =(2), <= (3)
+    if (*comparator == 3){
+        *comparator = 1;
+        *k = -(*k);
+        for ( int i = 0; i < coefs->size(); i++){
+            (*coefs)[i] = -((*coefs)[i]);
+        }
+    }
+    for ( int i = 0; i < coefs->size(); i++){
+        if ((*coefs)[i] < 0 ){
+            (*coefs)[i] = -((*coefs)[i]);
+            (*literals)[i] = -(*literals)[i];
+            (*k) += (*coefs)[i];
+        }
+    }       
 }
 
 void Formula::read_DIMACS(std::string file){
@@ -59,7 +73,7 @@ void Formula::read_DIMACS(std::string file){
         if ((split.size() >= 2) && (split[1] == "#variable=") ){
             this->num_of_vars = std::stoi(split[2]);
         }
-        if ( (split.size()==0) || (split[0]=="c") or (split[0])=="*") continue;
+        if ( (split.size()==0) || (split[0]=="c") or (split[0][0])=='*') continue;
         if ( split[0] == "p"){
             this->num_of_vars = std::stoi(split[2]);   
         }
@@ -117,17 +131,18 @@ void Formula::read_DIMACS(std::string file){
             std::vector<int> *coefs = new std::vector<int>;
             for(int i=0; i < (split.size() - 3) / 2;i++){
                 coefs->push_back(std::stoi(split[i*2]));
-                literals->push_back(std::stoi(split[i*2+1]));
+                literals->push_back(std::stoi(split[i*2+1].erase(0,1)));
             }
             std::string comparator_string = split[split.size()-3];
             int comparator = 0;
+            int k = std::stoi(split[split.size() -2]);
             if(comparator_string == ">=") comparator = 1;
             else if(comparator_string == "=") comparator = 2;
-            
-            int k = std::stoi(split[split.size() -2]);
-            PB_canonicalize(literals, &k, &comparator); // comparator: >= (1), =(2)  
+            else if(comparator_string == "<=") comparator = 3;
+            PB_canonicalize(literals, coefs, &k, &comparator); // comparator: >= (1), =(2) 
             weight = this->compute_clause_weight(literals->size(),k,'p');
             this->add_clause(literals, k , 'p', weight,coefs,comparator);
+            std::cout<<literals<<std::endl;
         }
         else{
             for(int i=0; i<split.size()-1;i++){

@@ -26,6 +26,8 @@ struct Parameter {
     char *fin_name;
     double beta;
     int adapt;
+    int ncores;
+    int max_trial_per_start;
 };
 
 enum {MAXCUT=0, MAXSAT};
@@ -40,12 +42,13 @@ void print_usage(char* prog_name, Parameter *param)
     printf( "\t-k RANK: rank of solution (default auto)\n");
     printf( "\t         use \"-k /2\" to divide the rank by 2\n");
     printf( "\t-e EPS: stopping threshold (default %.4e)\n", param->eps);
-    printf( "\t-t MAX_ITER: maximum iteration (default %d)\n", param->max_iter);
+    printf( "\t-t MAX_ITER_PER_START: maximum trial per restart (default %d)\n", param->max_trial_per_start);
     printf( "\t             use \"-t max\" for INT_MAX\n");
     printf( "\t-r N_TRIAL: number of trial in evaluation (default %d)\n", param->n_trial);
     printf( "\t-u: use unspeficied wcnf format\n");
     printf( "\t-v: verbose\n");
     printf( "\t-b beta: momentum scalar (default %f)\n", param->beta);
+    printf( "\t-n ncores: number of cores (default %f)\n", param->ncores);
 }
 
 void get_parameter(int argc, char **argv, Parameter *param)
@@ -62,6 +65,8 @@ void get_parameter(int argc, char **argv, Parameter *param)
         NULL, // fin name
         0, //beta
         0, // adapt
+        1, // ncores
+        5 //max trial per start
     };
 
     if(argc <= 1){
@@ -101,13 +106,19 @@ void get_parameter(int argc, char **argv, Parameter *param)
         }else if(!strcmp(*p, "-t")){
             if(i+1 >= argc) break; 
             if(!strcmp(p[1], "max")){
-                _param.max_iter = INT_MAX;
+                _param.max_trial_per_start = INT_MAX;
             }else{
-                int ret = sscanf(p[1], "%d", &_param.max_iter);
+                int ret = sscanf(p[1], "%d", &_param.max_trial_per_start);
                 if(ret != 1) break;
             }
             i++, p++;
-        }else if(!strcmp(*p, "-r")){
+        }else if(!strcmp(*p, "-n")){
+            if(i+1 >= argc) break;
+             int ret = sscanf(p[1], "%d", &_param.ncores);
+            if(ret != 1) break;
+            i++, p++;
+        }
+        else if(!strcmp(*p, "-r")){
             if(i+1 >= argc) break;
             int ret = sscanf(p[1], "%d", &_param.n_trial);
             if(ret != 1) break; 
@@ -153,13 +164,12 @@ int main(int argc, char **argv){
     Parameter param;
     get_parameter(argc, argv, &param);
     srand48(0);
- 
     Formula formula;
     formula.read_DIMACS(param.fin_name);
     BDD bdd = BDD(&formula);
     auto t1 = std::chrono::high_resolution_clock::now();
-    Optimizer optimizer = Optimizer(formula.num_of_vars, &bdd);
-    optimizer.minimize();    
+    Optimizer_Portfolio op = Optimizer_Portfolio(param.ncores, param.max_trial_per_start, formula.num_of_vars, &bdd);
+    op.solve();    
     auto t2 = std::chrono::high_resolution_clock::now();
     auto duration = std::chrono::duration_cast<std::chrono::microseconds>( t2 - t1 ).count();
     std::cout << duration / 1e6<<"s"<<std::endl;
